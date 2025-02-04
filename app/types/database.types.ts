@@ -16,6 +16,7 @@ export interface Database {
           content: string
           user_id: string
           likes: number
+          image_url: string | null
         }
         Insert: {
           id?: number
@@ -23,6 +24,7 @@ export interface Database {
           content: string
           user_id: string
           likes?: number
+          image_url?: string | null
         }
         Update: {
           id?: number
@@ -30,6 +32,7 @@ export interface Database {
           content?: string
           user_id?: string
           likes?: number
+          image_url?: string | null
         }
       }
     }

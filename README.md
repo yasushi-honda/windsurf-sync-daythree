@@ -17,6 +17,8 @@ Next.jsとSupabaseを使用したTwitterクローンアプリケーション。�
 ## 主な機能
 
 - ツイートの投稿
+  - テキストの投稿
+  - 画像の投稿（Supabase Storageを使用）
 - ツイート一覧の表示（時系列順）
 - システム設定に連動したダークモード
 - 手動でのダークモード切り替え
@@ -32,7 +34,8 @@ create table tweets (
     created_at timestamp with time zone default timezone('utc'::text, now()) not null,
     content text not null,
     user_id text not null,
-    likes integer default 0
+    likes integer default 0,
+    image_url text
 );
 
 -- RLSポリシー
@@ -45,6 +48,23 @@ create policy "Tweets are viewable by everyone" on tweets
 -- 作成ポリシー
 create policy "Anyone can create tweets" on tweets
     for insert with check (true);
+```
+
+### ストレージ設定
+
+```sql
+-- ストレージバケットの作成
+insert into storage.buckets (id, name, public) 
+values ('tweet-images', 'tweet-images', true);
+
+-- ストレージのポリシーを設定
+create policy "Tweet images are publicly accessible"
+on storage.objects for select
+using ( bucket_id = 'tweet-images' );
+
+create policy "Anyone can upload tweet images"
+on storage.objects for insert
+with check ( bucket_id = 'tweet-images' );
 ```
 
 ## セットアップ方法

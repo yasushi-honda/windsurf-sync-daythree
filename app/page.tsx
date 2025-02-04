@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from './lib/supabase'
 import { Database } from './types/database.types'
+import Image from 'next/image'
 
 type Tweet = Database['public']['Tables']['tweets']['Row']
 
@@ -11,40 +12,13 @@ export default function Home() {
   const [newTweet, setNewTweet] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [isDarkMode, setIsDarkMode] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    // システムのダークモード設定を検出
-    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setIsDarkMode(true)
-      document.documentElement.classList.add('dark')
-    }
-
-    // ダークモード設定の変更を監視
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    const handleChange = (e: MediaQueryListEvent) => {
-      setIsDarkMode(e.matches)
-      if (e.matches) {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
-    }
-    mediaQuery.addEventListener('change', handleChange)
-
     fetchTweets()
-
-    return () => mediaQuery.removeEventListener('change', handleChange)
   }, [])
-
-  const toggleDarkMode = () => {
-    setIsDarkMode(!isDarkMode)
-    if (!isDarkMode) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-  }
 
   async function fetchTweets() {
     try {
@@ -68,6 +42,42 @@ export default function Home() {
     }
   }
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { // 5MB制限
+        setError('画像サイズは5MB以下にしてください')
+        return
+      }
+      setSelectedImage(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const uploadImage = async (file: File) => {
+    const fileExt = file.name.split('.').pop()
+    const fileName = `${Math.random()}.${fileExt}`
+    const filePath = `${fileName}`
+
+    const { data, error } = await supabase.storage
+      .from('tweet-images')
+      .upload(filePath, file)
+
+    if (error) {
+      throw error
+    }
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('tweet-images')
+      .getPublicUrl(filePath)
+
+    return publicUrl
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
@@ -76,10 +86,16 @@ export default function Home() {
     try {
       if (!newTweet.trim()) return
 
+      let image_url = null
+      if (selectedImage) {
+        image_url = await uploadImage(selectedImage)
+      }
+
       const tweet = {
         content: newTweet,
         user_id: 'anonymous',
-        likes: 0
+        likes: 0,
+        image_url
       }
       console.log('Attempting to insert tweet:', tweet)
 
@@ -96,6 +112,11 @@ export default function Home() {
 
       console.log('Tweet created successfully:', data)
       setNewTweet('')
+      setSelectedImage(null)
+      setImagePreview(null)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
       fetchTweets()
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : JSON.stringify(e)
@@ -113,13 +134,6 @@ export default function Home() {
           Twitter Clone
         </h1>
         
-        <button
-          onClick={toggleDarkMode}
-          className="mb-4 px-4 py-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-        >
-          {isDarkMode ? '🌞 ライトモード' : '🌙 ダークモード'}
-        </button>
-        
         {error && (
           <div className="px-4 py-3 rounded mb-4 bg-red-100 dark:bg-red-900 border-red-400 dark:border-red-700 text-red-700 dark:text-red-100 border">
             <pre className="whitespace-pre-wrap">{error}</pre>
@@ -136,17 +150,57 @@ export default function Home() {
             onChange={(e) => setNewTweet(e.target.value)}
             disabled={isLoading}
           />
-          <button
-            type="submit"
-            className={`mt-2 px-4 py-2 rounded-full transition-colors text-white ${
-              isLoading 
-                ? 'opacity-50 cursor-not-allowed' 
-                : 'bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-700'
-            }`}
-            disabled={isLoading}
-          >
-            {isLoading ? '送信中...' : 'ツイートする'}
-          </button>
+
+          {/* 画像プレビュー */}
+          {imagePreview && (
+            <div className="mt-2 relative">
+              <img
+                src={imagePreview}
+                alt="Preview"
+                className="w-full max-h-64 object-contain rounded-lg"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedImage(null)
+                  setImagePreview(null)
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = ''
+                  }
+                }}
+                className="absolute top-2 right-2 bg-gray-800/50 text-white p-1 rounded-full hover:bg-gray-900/50"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          <div className="mt-2 flex items-center justify-between">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              ref={fileInputRef}
+              className="text-sm text-gray-500 dark:text-gray-400
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                dark:file:bg-blue-900/50 dark:file:text-blue-200
+                hover:file:bg-blue-100 dark:hover:file:bg-blue-900"
+            />
+            <button
+              type="submit"
+              className={`px-4 py-2 rounded-full transition-colors text-white ${
+                isLoading 
+                  ? 'opacity-50 cursor-not-allowed' 
+                  : 'bg-blue-500 dark:bg-blue-600 hover:bg-blue-600 dark:hover:bg-blue-700'
+              }`}
+              disabled={isLoading}
+            >
+              {isLoading ? '送信中...' : 'ツイートする'}
+            </button>
+          </div>
         </form>
 
         {/* ツイート一覧 */}
@@ -156,21 +210,32 @@ export default function Home() {
               key={tweet.id} 
               className="p-4 border rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
             >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm mb-2 text-gray-600 dark:text-gray-400">
-                    {new Date(tweet.created_at).toLocaleString()}
-                  </p>
-                  <p className="text-gray-900 dark:text-white">
-                    {tweet.content}
-                  </p>
+              <div className="flex flex-col">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm mb-2 text-gray-600 dark:text-gray-400">
+                      {new Date(tweet.created_at).toLocaleString()}
+                    </p>
+                    <p className="text-gray-900 dark:text-white">
+                      {tweet.content}
+                    </p>
+                  </div>
+                  <button
+                    className="transition-colors text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
+                    onClick={() => {/* いいね機能を実装予定 */}}
+                  >
+                    ♥ {tweet.likes || 0}
+                  </button>
                 </div>
-                <button
-                  className="transition-colors text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
-                  onClick={() => {/* いいね機能を実装予定 */}}
-                >
-                  ♥ {tweet.likes || 0}
-                </button>
+                {tweet.image_url && (
+                  <div className="mt-3">
+                    <img
+                      src={tweet.image_url}
+                      alt="Tweet image"
+                      className="w-full max-h-96 object-contain rounded-lg"
+                    />
+                  </div>
+                )}
               </div>
             </div>
           ))}
